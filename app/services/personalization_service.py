@@ -24,7 +24,7 @@ def get_personalized_prompt_extension(user_name: str = None, insights: dict = No
     is_generic = not user_name or user_name.lower().strip() in generic_names
     
     if user_name and not is_generic:
-        context += f"The user's name is {user_name}. Use it naturally in your response.\n"
+        context += f"The user's name is {user_name}. IMPORTANT: Do NOT use their name proactively in greetings or conversation unless they specifically ask 'what is my name?' or are introducing themselves.\n"
         context += f"USER STATUS: Name is KNOWN ({user_name}).\n"
     else:
         context += "The user's name is not yet known. Speak to them warmly without using a name until they provide it.\n"
