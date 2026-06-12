@@ -53,6 +53,13 @@
             border-bottom: 1px solid #F0F0F0;
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
             gap: 12px;
         }
 
@@ -74,6 +81,30 @@
             font-size: 18px;
             font-weight: 600;
             color: var(--text-dark);
+        }
+
+        .voice-toggle {
+            background: #F3F4F6;
+            color: var(--text-light);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .voice-toggle.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 10px rgba(142, 122, 181, 0.3);
+        }
+
+        .voice-toggle:hover {
+            transform: scale(1.05);
         }
 
         .header-info p {
@@ -224,10 +255,15 @@
 
     <div id="app-container">
         <header>
-            <div class="avatar">Z</div>
-            <div class="header-info">
-                <h1>ZuraAI</h1>
+            <div class="header-left">
+                <div class="avatar">Z</div>
+                <div class="header-info">
+                    <h1>ZuraAI</h1>
+                </div>
             </div>
+            <button id="voice-enable-toggle" class="voice-toggle" title="Toggle Zura's Voice">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="speaker-on"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            </button>
         </header>
 
         <div id="chat-window">
@@ -253,11 +289,24 @@
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
         const voiceBtn = document.getElementById('voice-btn');
+        const voiceEnableToggle = document.getElementById('voice-enable-toggle');
         const typingIndicator = document.getElementById('typing-indicator');
 
         let token = localStorage.getItem("token");
         let recognition;
         let isRecording = false;
+        let voiceEnabled = false;
+
+        // Voice Enable Toggle Logic
+        voiceEnableToggle.addEventListener('click', () => {
+            voiceEnabled = !voiceEnabled;
+            voiceEnableToggle.classList.toggle('active', voiceEnabled);
+            if (!voiceEnabled) {
+                // Stop any current audio if disabled
+                const currentAudio = document.querySelector('audio');
+                if (currentAudio) currentAudio.pause();
+            }
+        });
 
         // Voice Recognition Setup
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -381,7 +430,10 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({ 
+                        message: message,
+                        voice_enabled: voiceEnabled
+                    })
                 });
 
                 const data = await response.json();
@@ -389,6 +441,12 @@
 
                 if (data.reply) {
                     appendMessage('ai', data.reply);
+                    
+                    // Handle Voice Playback
+                    if (data.audio_base64 && voiceEnabled) {
+                        const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
+                        audio.play().catch(e => console.error("Audio Playback Error:", e));
+                    }
                 } else {
                     appendMessage('ai', "I'm here, but I didn't quite catch that. Could you say it again?");
                 }

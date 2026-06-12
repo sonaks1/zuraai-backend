@@ -7,14 +7,14 @@ from app.vector_memory.embedding_service import (
     generate_embedding
 )
 
-def save_memory(
+async def save_memory(
     user_id: int,
     message: str,
     emotion: str = "neutral",
     intent: str = "General chat"
 ):
 
-    embedding = generate_embedding(
+    embedding = await generate_embedding(
         message
     )
 

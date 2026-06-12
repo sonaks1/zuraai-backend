@@ -7,16 +7,17 @@ from app.services.therapy_service import get_therapeutic_recommendation
 from app.services.action_router import route_action
 from app.services.openai_service import generate_ai_response
 from app.services.memory_service import save_memory
+from app.services.chat_history_service import save_chat_history, get_chat_history
+from app.services.flow_service import get_session_state, save_session_state, handle_flow_logic
+from app.database import SessionLocal
 
 import asyncio
 
-from app.services.redis_service import redis_client
-from app.services.therapy_service import get_next_flow_step, get_therapeutic_recommendation
-from app.services.flow_service import get_session_state, save_session_state, handle_flow_logic
-import json
-
-from app.database import SessionLocal
-from app.services.chat_history_service import get_chat_history, save_chat_history
+from app.services.mood_service import track_mood, get_mood_insights, analyze_and_track_triggers, get_wellness_summary, track_wellness_progress, extract_and_update_user_name
+from app.services.personalization_service import get_personalized_prompt_extension, personality_mode
+from app.models.user_model import User
+from app.models.assessment_model import AssessmentResult
+from app.services import assessment_service
 
 async def websocket_chat(websocket: WebSocket, user_id: int):
     await websocket.accept()
@@ -28,22 +29,67 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
             message_data = json.loads(data)
             user_message = message_data.get("message", "").strip()
 
-            # 0. Load Session State
+            # 0. Load Session State & Long-term Insights
             session_state = get_session_state(user_id)
+            insights = get_mood_insights(db, user_id)
+            wellness_count = get_wellness_summary(db, user_id)
+            user = db.query(User).filter(User.id == user_id).first()
+            user_name = user.name if user else None
 
-            # 1. Parallel Analysis Engines
-            emotion_task = detect_emotion(user_message)
-            crisis_task = detect_crisis(user_message)
-            intent_task = detect_intent(user_message)
-            
-            emotion_data, crisis_data, intent_data = await asyncio.gather(
-                emotion_task, crisis_task, intent_task
+            # 1. Comprehensive Analysis (Consolidated into 1 call for speed)
+            analysis = await comprehensive_analysis(
+                user_message, 
+                previous_emotion=session_state.get("last_emotion")
             )
+            
+            if analysis:
+                emotion_data = {
+                    "emotion": analysis.get("emotion", "neutral"),
+                    "severity": analysis.get("severity_score", 0.2),
+                    "severity_level": analysis.get("severity_level", "Mild")
+                }
+                crisis_data = {
+                    "risk_level": analysis.get("risk_level", "low"),
+                    "critical": analysis.get("risk_level") == "critical"
+                }
+                intent_data = {
+                    "intent": analysis.get("intent", "General chat")
+                }
+                
+                # Background tasks for DB updates
+                asyncio.create_task(track_triggers(db, user_id, analysis.get("triggers", [])))
+                if analysis.get("name"):
+                    asyncio.create_task(update_user_name(db, user_id, analysis.get("name")))
+            else:
+                # Fallback if AI analysis fails
+                emotion_data = {"emotion": "neutral", "severity": 0.2, "severity_level": "Mild"}
+                crisis_data = {"risk_level": "low", "critical": False}
+                intent_data = {"intent": "General chat"}
+            
+            # Re-fetch name if it was just extracted
+            db.refresh(user)
+            user_name = user.name
 
             # 2. Flow Orchestration (Priority 1)
-            flow_reply, session_state, flow_active = handle_flow_logic(user_message, session_state, intent_data)
+            flow_reply, session_state, flow_active = handle_flow_logic(user_message, session_state, intent_data, db=db)
             
             if flow_active:
+                # Track exercise completion if a flow just finished
+                if flow_reply is None: # Flow finished in handle_flow_logic returns None, state, False
+                    pass # This is handled below when flow_active is False
+                
+                # Save assessment result if finished
+                if session_state.get("last_assessment_result"):
+                    res = session_state.pop("last_assessment_result")
+                    db_res = AssessmentResult(
+                        user_id=user_id,
+                        assessment_type=res["assessment_type"],
+                        score=res["score"],
+                        result_category=res["result_category"]
+                    )
+                    db.add(db_res)
+                    db.commit()
+
                 save_session_state(user_id, session_state)
                 save_chat_history(db, user_id, user_message, flow_reply, session_state.get("last_emotion", "neutral"))
                 
@@ -64,11 +110,27 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                 })
                 continue
 
+            # Check if a flow JUST finished (flow_active was true last time, now it's false)
+            if not flow_active and session_state.get("last_exercise") and not session_state.get("active_flow"):
+                 # Record wellness progress when a flow finishes
+                 track_wellness_progress(db, user_id, session_state["last_exercise"], session_state["last_exercise"], feedback="completed")
+
             # 3. Contextual Data
             from app.services.memory_search_service import search_memory
             memory_results = search_memory(user_message)
             retrieved_memories = memory_results.get("documents", [[]])[0] if memory_results else []
             history = get_chat_history(db, user_id, limit=5)
+            
+            personalized_context = get_personalized_prompt_extension(
+                user_name=user_name, 
+                insights=insights,
+                wellness_count=wellness_count,
+                user_profile={
+                    "tier": user.tier if user else None,
+                    "onboarding_layer": user.onboarding_layer if user else None,
+                    "support_preference": user.support_preference if user else None
+                }
+            )
 
             # 4. Safety Check & State Transitions
             last_severity = session_state.get("last_severity", 0.0)
@@ -76,29 +138,39 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
             last_emotion = session_state.get("last_emotion", "neutral")
             current_emotion = emotion_data["emotion"]
 
-            # Rule: Distress becomes severe -> therapist escalation
-            is_severe = current_severity > 0.8 or crisis_data["risk_level"] == "moderate"
+            # Rule: Distress becomes severe/critical -> therapist escalation
+            # We only escalate immediately if it's CRITICAL. 
+            # For Mild/Moderate (severity < 0.9), we use wellness tools first.
+            is_critical = current_severity >= 0.9 or crisis_data["risk_level"] == "critical"
+            is_moderate_high = current_severity > 0.8 or crisis_data["risk_level"] == "moderate"
             
-            if crisis_data["risk_level"] == "critical":
+            if is_critical:
                 final_reply = "I'm really sorry you're going through this much pain right now. You don't have to face this alone. I strongly encourage connecting with immediate emotional support or a licensed professional through Mibo’s support system."
                 recommended_feature = "INSTANT_SUPPORT"
                 action_data = {"type": "EMERGENCY_SUPPORT", "feature": "INSTANT_SUPPORT"}
                 redis_client.delete(f"zura_session:{user_id}")
-            elif is_severe:
+            elif is_moderate_high and current_emotion in ["hopelessness", "fear"]:
+                # Only escalate moderate for high-risk emotions
                 final_reply = "I can hear how much you're carrying right now. It might be helpful to talk this through with someone who can offer specialized support. Would you like to see how to connect with a professional?"
                 recommended_feature = "THERAPIST_BOOKING"
                 action_data = {"type": "THERAPIST_ESCALATION", "feature": "THERAPIST_BOOKING"}
                 session_state.update({"last_severity": current_severity, "last_emotion": current_emotion})
             else:
+                # DEFAULT: AI Chat + Wellness Flow Detection
+                # This ensures Stress/Sadness/Sleep issues go through AI validation/support first.
+                
+                refused = session_state.get("refused_exercises", [])
+                completed = session_state.get("completed_exercises", [])
+
                 # Rule: Panic detected -> crisis calming flow (Slow Breathing)
-                if current_emotion == "panic":
+                if current_emotion == "panic" and "breathing" not in refused and "compact_breathing" not in refused:
                     ai_output = {
                         "reply": "I'm right here with you. Let’s slow things down together. Take a slow breath in...",
                         "intent": "breathe",
                         "recommended_feature": "BREATHE"
                     }
                 # Rule: Sadness increases -> grounding support
-                elif current_emotion == "sadness" and current_severity > last_severity and last_emotion == "sadness":
+                elif current_emotion == "sadness" and current_severity > last_severity and last_emotion == "sadness" and current_severity > 0.6 and "grounding" not in refused:
                     ai_output = {
                         "reply": "I can feel things getting a bit heavier. Let's try to ground ourselves in the present moment together. Can you name 3 things you see right now?",
                         "intent": "grounding",
@@ -106,52 +178,66 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                     }
                 else:
                     # 5. Generate AI Response (Normal Chat)
+                    # Detect slight improvement
+                    if last_severity > 0 and current_severity < last_severity:
+                        if not session_state.get("premium_mentioned"):
+                            personalized_context += "\nUSER STATUS: They are showing slight improvement. This is a perfect, natural moment to acknowledge their win and briefly mention a relevant Mibo Premium feature (like sleep programs or wellness journeys) before pivoting to exploration.\n"
+                        else:
+                            personalized_context += "\nUSER STATUS: They are showing slight improvement. Pivot to exploring the cause of stress rather than suggesting more exercises.\n"
+
                     ai_output = await generate_ai_response(
                         message=user_message,
                         emotion=current_emotion,
                         memories=retrieved_memories,
                         history=history,
                         last_exercise=session_state.get("last_exercise"),
-                        personality="empathetic"
+                        completed_exercises=completed,
+                        refused_exercises=refused,
+                        personality=personality_mode(current_emotion),
+                        personalized_context=personalized_context
                     )
                 
                 final_reply = ai_output.get("reply", "I'm here for you.")
+                
+                # Check if AI mentioned Premium and update state
+                if any(keyword in final_reply.lower() for keyword in ["premium", "programs", "guided sessions", "wellness journeys"]):
+                    session_state["premium_mentioned"] = True
+                    
                 recommended_feature = ai_output.get("recommended_feature", "ZURAAI_CHAT")
                 
                 # Check if the AI or rules recommended a specific flow
                 intent_ai = ai_output.get("intent", "").lower()
                 reply_ai = final_reply.lower()
                 
-                if "breathe" in intent_ai or "breathing" in intent_ai or "breath" in reply_ai:
-                    # Slow breathing for panic or high anxiety
+                flow_name = None
+                if "box breathing" in reply_ai or "box breathe" in reply_ai:
+                    flow_name = "box_breathing"
+                elif "4-7-8" in reply_ai:
+                    flow_name = "478_breathing"
+                elif "reframe" in reply_ai or "thought reframing" in reply_ai:
+                    flow_name = "thought_reframing"
+                elif "body scan" in reply_ai:
+                    flow_name = "body_scan"
+                elif "tension release" in reply_ai or "muscle relaxation" in reply_ai:
+                    flow_name = "tension_release"
+                elif "self-esteem" in reply_ai or "proud of" in reply_ai:
+                    flow_name = "self_esteem"
+                elif "grounding" in intent_ai or "5-4-3-2-1" in user_message.lower() or "grounding" in reply_ai:
+                    flow_name = "grounding"
+                elif "breathe" in intent_ai or "breathing" in intent_ai or "breath" in reply_ai:
                     flow_name = "breathing" if current_emotion == "panic" else "compact_breathing"
-                    
+
+                if flow_name:
+                    # All flows should start at step 0 to ensure the first instruction is delivered properly after confirmation.
+                    current_step = 0
+
                     session_state.update({
                         "active_flow": None,
                         "pending_flow": flow_name,
                         "awaiting_confirmation": True,
-                        "current_step": 0 if current_emotion != "panic" else 1, # Start at 1 if we already gave the first step
+                        "current_step": current_step,
                         "last_emotion": current_emotion,
                         "last_severity": current_severity
-                    })
-                    # If it was an immediate transition (panic/sadness rules), set it to active immediately?
-                    # The instructions say "wait for backend to take over", so we keep it pending.
-                elif "grounding" in intent_ai or "5-4-3-2-1" in user_message.lower() or "grounding" in reply_ai:
-                    session_state.update({
-                        "active_flow": None,
-                        "pending_flow": "grounding",
-                        "awaiting_confirmation": True,
-                        "current_step": 1 if "grounding" in ai_output.get("intent", "") and "sadness" in current_emotion else 0,
-                        "last_emotion": current_emotion,
-                        "last_severity": current_severity
-                    })
-                elif any(phrase in reply_ai for phrase in ["talking", "weighing on your mind", "help a little", "here to listen", "share whatever", "little as you'd like"]):
-                    session_state.update({
-                        "active_flow": None,
-                        "pending_flow": "sadness_support",
-                        "awaiting_confirmation": True,
-                        "current_step": 0,
-                        "last_emotion": emotion_data["emotion"]
                     })
                 
                 save_session_state(user_id, session_state)
@@ -164,7 +250,19 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                 action_data = action_routing["action"]
                 recommended_feature = action_routing["recommended_feature"]
 
+                if action_data["type"] == "START_ASSESSMENT":
+                    assessment_type = action_data["assessment_type"]
+                    first_question = assessment_service.get_assessment_question(assessment_type, 0)
+                    final_reply = f"{final_reply}\n\n{first_question}"
+                    session_state.update({
+                        "active_assessment": assessment_type,
+                        "assessment_step": 0,
+                        "assessment_score": 0
+                    })
+                    save_session_state(user_id, session_state)
+
             # 6. Post-Response Tasks
+            track_mood(db, user_id, emotion_data["emotion"], emotion_data["severity"], context=user_message)
             save_chat_history(db, user_id, user_message, final_reply, emotion_data["emotion"])
             asyncio.create_task(asyncio.to_thread(save_memory, user_id, user_message, emotion_data["emotion"], intent_data["intent"]))
 

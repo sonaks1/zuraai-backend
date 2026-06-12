@@ -1,9 +1,9 @@
 from app.vector_memory.chroma_db import collection
 from app.vector_memory.embedding_service import generate_embedding
 
-def search_memory(query: str):
+async def search_memory(query: str):
 
-    embedding = generate_embedding(query)
+    embedding = await generate_embedding(query)
 
     results = collection.query(
 

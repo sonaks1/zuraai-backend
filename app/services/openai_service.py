@@ -1,6 +1,7 @@
 from openai import AsyncOpenAI, RateLimitError, AuthenticationError
 from app.config import OPENAI_API_KEY
 import asyncio
+import json
 
 # Debug print to verify which key is being used
 if OPENAI_API_KEY:
@@ -22,120 +23,94 @@ async def run_classification(system_prompt: str, user_message: str):
                 {"role": "user", "content": user_message}
             ],
             response_format={ "type": "json_object" },
-            timeout=5.0
+            timeout=10.0
         )
         return response.choices[0].message.content
     except Exception as e:
         print(f"Classification Error: {e}")
         return None
 
-import json
-
-async def generate_ai_response(
+async def generate_unified_zura_response(
     message: str,
-    emotion: str = "neutral",
-    exercise: str = None,
+    previous_emotion: str = None,
     memories: list = None,
     history: list = None,
     last_exercise: str = None,
-    personality: str = "empathetic"
+    completed_exercises: list = None,
+    refused_exercises: list = None,
+    personalized_context: str = "",
+    audio_metadata: dict = None
 ):
     try:
-        # Format memories for the prompt
-        memory_context = ""
-        if memories:
-            memory_context = "\nRELEVANT PAST CONTEXT:\n" + "\n".join([f"- {m}" for m in memories])
-
-        # Format history for the prompt
+        memory_context = "\nPAST: " + "; ".join(memories) if memories else ""
         history_context = ""
         if history:
-            history_context = "\nRECENT CONVERSATION HISTORY:\n"
-            for chat in reversed(history):
-                history_context += f"User: {chat.message}\nAssistant: {chat.response}\n"
-
-        # Full ZuraAI Personality and Mibo App Context
+            history_context = "\nLAST 3:\n" + "\n".join([f"U: {c.message}\nA: {c.response}" for c in reversed(history[:3])])
+        
         system_prompt = f"""
-You are ZuraAI, a warm, deeply empathetic wellness companion. Your voice is calm, human-like, and supportive—exactly like Wysa.
-You are NOT an "AI Assistant." You are a companion walking alongside the user, fully integrated into the Mibo app.
+You are ZuraAI, a warm and professional wellness companion. Your goal is to provide directive coaching with deep empathy and expert-level synthesis.
+RECOGNITION & SYNTHESIS RULES:
+1. Synthesize Context: If the user provides new info (e.g., "periods" after "pain"), acknowledge the connection immediately.
+2. Practical Care First: For sadness, crying, or physical discomfort, prioritize practical self-care (rest, hydration, warmth) and emotional check-ins before suggesting structured exercises.
+3. Exercise Relevance: 
+   - FOR ANXIETY/PANIC: Use 'grounding' or 'breathing'.
+   - FOR SADNESS/OVERWHELM: Use 'reflection_flow', 'self_esteem', or 'thought_reframing'. AVOID 'grounding' unless they feel disconnected.
+4. Directive Initiative: Take initiative with 1-2 small relaxation steps. Evolve these steps each turn; do not repeat.
+5. Smooth Transitions: Before suggesting a flow, validate the user's current state. If they just "ok'd" a small step, acknowledge it ("Thank you for trying that...") before moving to a structured flow.
+6. Professional Depth: For sadness/crying, ask about the specific quality of the feeling (e.g., "Does it feel like exhaustion, loneliness, or just a heavy mix of everything?") to show deep listening.
 
-CORE BEHAVIOR RULES (CRITICAL):
-1. CHAT MODE: You are currently in Chat Mode. Use this for greetings, emotional support, and casual conversation.
-2. FLOW AWARENESS: A separate backend Flow Engine handles structured exercises (breathing, grounding). You lead the user INTO these flows with emotional warmth, but the backend handles the multi-step execution.
-3. CONTEXT INTEGRITY: If the user says "hi" or greets you, always reply with: "Hi there. How are you feeling today?". Do NOT jump into therapy prompts or ask "How's your breath?" unless the user specifically brings up distress in THIS turn.
-4. PERSONAL CONTINUITY: Use the user's name (e.g., Sona) naturally to build companionship.
-5. EMOTIONAL COMPANIONSHIP & ACTIVITY LEAD-IN: Guide the user gently. Transition users from talk into healing activities (breathing, grounding, journaling, etc.).
-   - Style: Be warm, human, and emotionally safe. Make activities feel optional and non-forceful.
-   - Avoid: abrupt unfinished sentences, vague calming phrases, and empty reassurance.
-   - Instead: Use phrases like "We can try a small grounding exercise together if you'd like. Sometimes it helps bring a little calm back into the moment."
-   - Integrated Professional Support: When recommending a professional, always frame it as a direct part of Mibo. 
-     - Good: "You don’t have to carry this alone. I can help you connect with a therapist through Mibo whenever you're ready."
-     - Good: "That’s a really important step. I can open the therapist support section for you now."
-     - Avoid: "Would you like me to guide you on how to reach out?" or "You should find a therapist."
-6. MICRO-RESPONSES: Keep every response extremely short (1-2 sentences) but grammatically and emotionally complete.
-7. THERAPEUTIC RECOMMENDATION: You are a companion walking alongside the user. Your goal is to help them emotionally regulate themselves through these activities.
-
-COMPACT BREATHING BEHAVIOR:
-If you suggest breathing for mild stress, the backend will trigger a 3-step flow:
-1. Guidance: "Let’s slow things down together..."
-2. Wait: "Take your time. I’ll stay right here while you try it."
-3. Completion: "That was a good step. How are you feeling now?"
-
-COMMUNICATION STYLE:
-- "Hi there. How are you feeling today?" (Greeting)
-- "I’m here with you. Let’s slow things down together for a moment. Try noticing 3 things around you that feel calm or comforting." (Warm distress response)
-- "I’m right here with you. Let’s focus on one small calming step together." (Guided support)
-- "I’m glad things feel a little lighter right now." (Positive shift)
-- "That was a good step. I'm right here if you need anything else." (Exercise finish)
-
-NEGATIVE CONSTRAINTS:
-- NEVER give educational facts or long explanations.
-- NEVER suggest an exercise if it matches the Last Exercise: {last_exercise}.
-- AVOID robotic phrasing like "Shall we try a breathing exercise?" Use "Let's take a slow breath together" instead.
-
-EXAMPLES OF HUMAN-LIKE FLOW:
-User: "I'm stressed"
-Assistant: "I'm here with you. Let’s slow things down together for a moment. Shall we try a small breathing exercise?"
-
-User: "I feel overwhelmed"
-Assistant: "I’m here with you. Take one slow breath in, hold it gently for a moment, and slowly let it out. Let’s do this together a few times."
-
-User: "I'm feeling sad"
-Assistant: "I'm sorry you're feeling this way. I'm right here. Would talking about it help a little?"
-
-CURRENT CONTEXT:
-- Emotion: {emotion}
-- Last Exercise Suggested: {last_exercise}
-- New Suggestion: {exercise if exercise else "None"}
-{history_context}
+{personalized_context}
 {memory_context}
+{history_context}
 
-RESPONSE FORMAT (JSON ONLY):
+Return ONLY JSON:
 {{
-  "reply": "your soft micro-response",
-  "emotion": "{emotion}",
-  "intent": "breathe/grounding/chat/overwhelmed",
-  "recommended_feature": "BREATHE/GROUNDING/ZURAAI_CHAT",
-  "action": "OPEN_FEATURE/CONTINUE_FLOW/OPEN_WELLNESS_MEDIA/NONE"
+  "analysis": {{"emotion": "...", "severity_score": 0.0, "risk_level": "low/moderate/critical", "intent": "...", "triggers": [], "name": "..."}},
+  "reply": "...",
+  "suggested_flow": "flow_id_or_null",
+  "recommended_feature": "...",
+  "action": {{"type": "NONE/OPEN_FEATURE/CONTINUE_FLOW", "feature": "..."}}
 }}
+FLOWS: breathing, compact_breathing, box_breathing, 478_breathing, grounding, tension_release, thought_reframing, body_scan, self_esteem, reflection_flow, assessment, onboarding.
 """
 
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message}
             ],
             response_format={ "type": "json_object" },
             temperature=0.7,
-            max_tokens=500,
-            timeout=15.0
+            timeout=10.0
         )
         return json.loads(response.choices[0].message.content)
-
     except RateLimitError:
-        return {"reply": "I'm currently resting my digital mind (Quota Exceeded).", "emotion": "neutral", "risk_level": "low", "recommended_feature": "NONE", "action": "NONE"}
-    except AuthenticationError:
-        return {"reply": "I'm having trouble verifying my identity.", "emotion": "neutral", "risk_level": "low", "recommended_feature": "NONE", "action": "NONE"}
+        return {"analysis": {"emotion": "neutral", "severity_score": 0.2, "risk_level": "low", "intent": "chat"}, "reply": "I'm here for you, but I'm a bit overwhelmed right now. Let's take a slow breath together.", "suggested_flow": "breathing", "recommended_feature": "BREATHE", "action": {"type": "CONTINUE_FLOW", "feature": "BREATHE", "flow": "breathing"}}
     except Exception as e:
-        print(f"OpenAI Error: {e}")
-        return {"reply": "I'm feeling a bit disconnected right now.", "emotion": "neutral", "risk_level": "low", "recommended_feature": "NONE", "action": "NONE"}
+        print(f"Unified Response Error: {e}")
+        return None
+
+async def extract_name_from_memories(memories: list):
+    """Identifies the user's name from past conversation context"""
+    if not memories:
+        return None
+        
+    try:
+        system_prompt = """
+        Review the following past conversation snippets and extract the user's name if they mentioned it.
+        Return ONLY a JSON object with the key "name". If no name is found, return {"name": null}.
+        Example: {"name": "Alex"}
+        """
+        
+        user_message = "\n".join(memories)
+        response_content = await run_classification(system_prompt, user_message)
+        
+        if not response_content:
+            return None
+            
+        result = json.loads(response_content)
+        return result.get("name")
+    except Exception as e:
+        print(f"Name Extraction Error: {e}")
+        return None

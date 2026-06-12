@@ -2,8 +2,8 @@ fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
-python-jose
-passlib
+python-jose[cryptography]
+passlib[bcrypt]
 bcrypt
 python-dotenv
 openai
@@ -17,4 +17,3 @@ httpx
 numpy
 torch
 transformers
-redis

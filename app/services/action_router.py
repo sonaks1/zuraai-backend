@@ -1,11 +1,18 @@
 # Standardized Feature Names for Mibo Frontend
 FEATURE_MAP = {
-    "BREATHE": ["stress help", "panic help", "calming exercises", "breathing", "breathe"],
+    "BREATHE": ["stress help", "panic help", "calming exercises", "breathing", "breathe", "slow breath"],
+    "BOX_BREATHE": ["box breathing", "square breathing", "4-4-4-4"],
+    "478_BREATHE": ["4-7-8", "478 breathing", "deep relaxation breath"],
+    "GROUNDING": ["grounding", "5-4-3-2-1", "present moment", "object awareness"],
+    "CBT_REFRAME": ["thought reframing", "look at it differently", "negative thoughts", "reframe"],
+    "BODY_SCAN": ["body scan", "tension in body", "physical relaxation"],
+    "TENSION_RELEASE": ["tension release", "muscle relaxation", "squeeze and release"],
     "JOURNAL": ["write thoughts", "express feelings", "reflect emotionally", "journaling", "journal"],
-    "GRATITUDE": ["emotionally negative", "hopeless", "disconnected", "gratitude"],
+    "GRATITUDE": ["emotionally negative", "hopeless", "disconnected", "gratitude", "thankful"],
     "INSIGHTS": ["How have I been feeling recently?", "Track my emotions", "analytics", "patterns", "insights"],
     "THERAPIST_BOOKING": ["therapist", "psychologist", "psychiatrist", "counseling", "professional help", "booking"],
-    "INSTANT_SUPPORT": ["crisis", "panic", "emotional breakdown", "self-harm", "suicidal", "emergency"]
+    "INSTANT_SUPPORT": ["crisis", "panic", "emotional breakdown", "self-harm", "suicidal", "emergency"],
+    "ASSESSMENT": ["test", "assessment", "checkup", "stress test", "anxiety test", "depression test", "sleep test", "burnout test", "how stressed am i", "check my anxiety", "mood check"]
 }
 
 def route_action(intent: str, emotion: str, risk_level: str = "low"):
@@ -21,7 +28,44 @@ def route_action(intent: str, emotion: str, risk_level: str = "low"):
             }
         }
 
-    # 2. Overwhelmed / Panic Relief (Media Flow)
+    # 2. Assessment Routing
+    assessment_keywords = {
+        "stress": ["stress test", "how stressed am i", "stress assessment", "stress check", "assessment"],
+        "anxiety": ["anxiety test", "check my anxiety", "anxiety assessment", "anxiety check"],
+        "depression": ["depression test", "mood check", "depression assessment", "mood assessment"],
+        "sleep": ["sleep test", "sleep assessment", "check my sleep", "sleep check"],
+        "burnout": ["burnout test", "burnout assessment", "burnout check"],
+        "onboarding": ["onboarding", "intake", "check-in", "first-time", "get started", "questionnaire"]
+    }
+    
+    # Check intent first
+    for assessment_type, keywords in assessment_keywords.items():
+        if any(kw in intent_lower for kw in keywords):
+            return {
+                "recommended_feature": "ASSESSMENT",
+                "action": {
+                    "type": "START_ASSESSMENT",
+                    "feature": "ASSESSMENT",
+                    "assessment_type": assessment_type
+                }
+            }
+
+    # If intent is generic "Assessment", use emotion as a fallback
+    if intent_lower == "assessment":
+        assessment_type = "stress" # Default
+        if emotion in assessment_keywords:
+            assessment_type = emotion
+        
+        return {
+            "recommended_feature": "ASSESSMENT",
+            "action": {
+                "type": "START_ASSESSMENT",
+                "feature": "ASSESSMENT",
+                "assessment_type": assessment_type
+            }
+        }
+
+    # 3. Overwhelmed / Panic Relief (Media Flow)
     if "overwhelmed" in intent_lower or "panic" in intent_lower:
         return {
             "recommended_feature": "BREATHE",

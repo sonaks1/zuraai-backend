@@ -1,9 +1,16 @@
-from sentence_transformers import SentenceTransformer
+from app.services.openai_service import client
 
-model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
-
-def generate_embedding(text: str):
-
-    return model.encode(text).tolist()
+async def generate_embedding(text: str):
+    """
+    Uses OpenAI's text-embedding-3-small for faster, offloaded embeddings.
+    """
+    try:
+        response = await client.embeddings.create(
+            input=text,
+            model="text-embedding-3-small"
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        print(f"Embedding Error: {e}")
+        # Return a zero vector as fallback
+        return [0.0] * 1536
