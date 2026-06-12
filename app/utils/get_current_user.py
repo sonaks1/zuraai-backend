@@ -25,51 +25,46 @@ def get_current_user(
     token=Depends(security),
     db: Session = Depends(get_db)
 ):
-
     if not token or not token.credentials:
-        # --- LOCAL DEVELOPMENT FALLBACK ---
-        # Allow testing without tokens by defaulting to User ID 1
-        user = db.query(User).filter(User.id == 1).first()
-        if user:
-            return user
         raise HTTPException(
             status_code=401,
             detail="Authentication required. Please provide a Bearer token."
         )
 
     try:
-
         payload = jwt.decode(
             token.credentials,
             JWT_SECRET,
             algorithms=[ALGORITHM]
         )
 
-        user_id = payload["user_id"]
+        user_id = payload.get("user_id")
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token: missing user_id"
+            )
 
         user = db.query(User).filter(
             User.id == user_id
         ).first()
 
         if not user:
-            # Fallback if user in token doesn't exist
-            user = db.query(User).filter(User.id == 1).first()
-            if user: return user
             raise HTTPException(
                 status_code=401,
-                detail="Invalid User"
+                detail="User not found"
             )
 
         return user
 
-    except:
-        # --- LOCAL DEVELOPMENT FALLBACK ---
-        # If token is invalid/expired, default to User ID 1 for testing
-        user = db.query(User).filter(User.id == 1).first()
-        if user:
-            return user
-
+    except jwt.JWTError:
         raise HTTPException(
             status_code=401,
-            detail="Invalid Token"
+            detail="Invalid or expired token"
+        )
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication error"
         )
