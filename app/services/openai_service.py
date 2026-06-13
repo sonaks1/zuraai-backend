@@ -39,7 +39,8 @@ async def generate_unified_zura_response(
     completed_exercises: list = None,
     refused_exercises: list = None,
     personalized_context: str = "",
-    audio_metadata: dict = None
+    audio_metadata: dict = None,
+    personality: str = "warm"
 ):
     try:
         memory_context = "\nPAST: " + "; ".join(memories) if memories else ""
@@ -63,6 +64,7 @@ RECOGNITION & SYNTHESIS RULES:
 4. Directive Initiative: Take initiative with 1-2 small relaxation steps. Evolve these steps each turn; do not repeat.
 5. Smooth Transitions: Before suggesting a flow, validate the user's current state. If they just "ok'd" a small step, acknowledge it ("Thank you for trying that...") before moving to a structured flow.
 6. Professional Depth: For sadness/crying, ask about the specific quality of the feeling (e.g., "Does it feel like exhaustion, loneliness, or just a heavy mix of everything?") to show deep listening.
+7. Exercise Ineffectiveness: If the user says an exercise didn't work or they feel "no changes", acknowledge it warmly and IMMEDIATELY suggest a DIFFERENT technique from the list below. Do not ask "would you like to try something else?" without naming what it is.
 
 {personalized_context}
 {memory_context}
@@ -70,7 +72,15 @@ RECOGNITION & SYNTHESIS RULES:
 
 Return ONLY JSON:
 {{
-  "analysis": {{"emotion": "...", "severity_score": 0.0, "risk_level": "low/moderate/critical", "intent": "...", "triggers": [], "name": "..."}},
+  "analysis": {{
+    "emotion": "...", 
+    "severity_score": 0.0, 
+    "severity_level": "Mild/Moderate/Critical",
+    "risk_level": "low/moderate/critical", 
+    "intent": "...", 
+    "triggers": [], 
+    "name": "..."
+  }},
   "reply": "...",
   "suggested_flow": "flow_id_or_null",
   "recommended_feature": "...",
@@ -89,12 +99,33 @@ FLOWS: breathing, compact_breathing, box_breathing, 478_breathing, grounding, te
             temperature=0.7,
             timeout=10.0
         )
-        return json.loads(response.choices[0].message.content)
+        data = json.loads(response.choices[0].message.content)
+        
+        # Ensure severity_level is present in analysis for compatibility
+        if "analysis" in data and "severity_level" not in data["analysis"]:
+            score = data["analysis"].get("severity_score", 0.2)
+            if score >= 0.9: data["analysis"]["severity_level"] = "Critical"
+            elif score >= 0.6: data["analysis"]["severity_level"] = "Moderate"
+            else: data["analysis"]["severity_level"] = "Mild"
+            
+        return data
     except RateLimitError:
-        return {"analysis": {"emotion": "neutral", "severity_score": 0.2, "risk_level": "low", "intent": "chat"}, "reply": "I'm here for you, but I'm a bit overwhelmed right now. Let's take a slow breath together.", "suggested_flow": "breathing", "recommended_feature": "BREATHE", "action": {"type": "CONTINUE_FLOW", "feature": "BREATHE", "flow": "breathing"}}
+        return {"analysis": {"emotion": "neutral", "severity_score": 0.2, "severity_level": "Mild", "risk_level": "low", "intent": "chat"}, "reply": "I'm here for you, but I'm a bit overwhelmed right now. Let's take a slow breath together.", "suggested_flow": "breathing", "recommended_feature": "BREATHE", "action": {"type": "CONTINUE_FLOW", "feature": "BREATHE", "flow": "breathing"}}
     except Exception as e:
         print(f"Unified Response Error: {e}")
         return None
+
+async def comprehensive_analysis(message: str, previous_emotion: str = None):
+    """Compatibility wrapper for websocket_service.py"""
+    result = await generate_unified_zura_response(message, previous_emotion=previous_emotion)
+    if result and "analysis" in result:
+        return result["analysis"]
+    return None
+
+async def generate_ai_response(**kwargs):
+    """Compatibility alias for websocket_service.py"""
+    return await generate_unified_zura_response(**kwargs)
+
 
 async def extract_name_from_memories(memories: list):
     """Identifies the user's name from past conversation context"""

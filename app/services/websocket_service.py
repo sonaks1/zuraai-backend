@@ -1,5 +1,6 @@
 from fastapi import WebSocket
 import json
+import re
 from app.services.emotion_service import detect_emotion
 from app.services.crisis_service import detect_crisis
 from app.services.intent_service import detect_intent
@@ -13,7 +14,16 @@ from app.database import SessionLocal
 
 import asyncio
 
-from app.services.mood_service import track_mood, get_mood_insights, analyze_and_track_triggers, get_wellness_summary, track_wellness_progress, extract_and_update_user_name
+from app.services.mood_service import (
+    track_mood, 
+    get_mood_insights, 
+    analyze_and_track_triggers, 
+    get_wellness_summary, 
+    track_wellness_progress, 
+    extract_and_update_user_name,
+    track_triggers,
+    update_user_name
+)
 from app.services.personalization_service import get_personalized_prompt_extension, personality_mode
 from app.models.user_model import User
 from app.models.assessment_model import AssessmentResult
@@ -57,9 +67,9 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                 }
                 
                 # Background tasks for DB updates
-                asyncio.create_task(track_triggers(db, user_id, analysis.get("triggers", [])))
+                asyncio.create_task(asyncio.to_thread(track_triggers, db, user_id, analysis.get("triggers", [])))
                 if analysis.get("name"):
-                    asyncio.create_task(update_user_name(db, user_id, analysis.get("name")))
+                    asyncio.create_task(asyncio.to_thread(update_user_name, db, user_id, analysis.get("name")))
             else:
                 # Fallback if AI analysis fails
                 emotion_data = {"emotion": "neutral", "severity": 0.2, "severity_level": "Mild"}
@@ -208,24 +218,31 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                 # Check if the AI or rules recommended a specific flow
                 intent_ai = ai_output.get("intent", "").lower()
                 reply_ai = final_reply.lower()
+                suggested_flow = ai_output.get("suggested_flow")
                 
                 flow_name = None
-                if "box breathing" in reply_ai or "box breathe" in reply_ai:
-                    flow_name = "box_breathing"
-                elif "4-7-8" in reply_ai:
-                    flow_name = "478_breathing"
-                elif "reframe" in reply_ai or "thought reframing" in reply_ai:
-                    flow_name = "thought_reframing"
-                elif "body scan" in reply_ai:
-                    flow_name = "body_scan"
-                elif "tension release" in reply_ai or "muscle relaxation" in reply_ai:
-                    flow_name = "tension_release"
-                elif "self-esteem" in reply_ai or "proud of" in reply_ai:
-                    flow_name = "self_esteem"
-                elif "grounding" in intent_ai or "5-4-3-2-1" in user_message.lower() or "grounding" in reply_ai:
-                    flow_name = "grounding"
-                elif "breathe" in intent_ai or "breathing" in intent_ai or "breath" in reply_ai:
-                    flow_name = "breathing" if current_emotion == "panic" else "compact_breathing"
+                # Priority 1: Explicitly suggested flow from AI JSON
+                if suggested_flow and suggested_flow != "flow_id_or_null" and suggested_flow in ["breathing", "compact_breathing", "box_breathing", "478_breathing", "grounding", "tension_release", "thought_reframing", "body_scan", "self_esteem", "reflection_flow"]:
+                    flow_name = suggested_flow
+                
+                # Priority 2: Keyword matching (Fallback/Safety)
+                if not flow_name:
+                    if re.search(r"box\s*breath", reply_ai):
+                        flow_name = "box_breathing"
+                    elif re.search(r"4-7-8", reply_ai):
+                        flow_name = "478_breathing"
+                    elif re.search(r"reframe|thought\s*refram", reply_ai):
+                        flow_name = "thought_reframing"
+                    elif re.search(r"body\s*scan", reply_ai):
+                        flow_name = "body_scan"
+                    elif re.search(r"tension\s*release|muscle\s*relax", reply_ai):
+                        flow_name = "tension_release"
+                    elif re.search(r"self-esteem|proud\s*of", reply_ai):
+                        flow_name = "self_esteem"
+                    elif "grounding" in intent_ai or re.search(r"grounding|5-4-3-2-1", reply_ai + user_message.lower()):
+                        flow_name = "grounding"
+                    elif "breathe" in intent_ai or "breathing" in intent_ai or re.search(r"breath", reply_ai):
+                        flow_name = "breathing" if current_emotion == "panic" else "compact_breathing"
 
                 if flow_name:
                     # All flows should start at step 0 to ensure the first instruction is delivered properly after confirmation.
@@ -239,6 +256,9 @@ async def websocket_chat(websocket: WebSocket, user_id: int):
                         "last_emotion": current_emotion,
                         "last_severity": current_severity
                     })
+                else:
+                    # Ensure no accidental confirmation state if no flow detected
+                    session_state["awaiting_confirmation"] = False
                 
                 save_session_state(user_id, session_state)
 

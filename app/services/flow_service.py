@@ -45,11 +45,16 @@ def handle_flow_logic(user_message: str, session_state: dict, intent_data: dict 
         "yes please", "we can try", "i would like that", "let's do it", "let's try", 
         "yep", "yup", "give", "i did it", "did it", "done it", "i do it", "completed", "ready",
         "anything", "whatever", "help me", "calm down", "want to calm down", "i want to calm down",
-        "go ahead", "let's start", "start", "do it"
+        "go ahead", "let's start", "start", "do it", "try it", "let's try it"
     ]
-    is_continuation = user_msg_lower in continuations or any(c in user_msg_lower for c in ["done", "finished", "completed"])
-    is_stop = any(word in user_msg_lower for word in ["stop", "cancel", "exit", "quit", "no more", "nevermind", "end this", "don't want to"])
+    is_continuation = any(c == user_msg_lower or user_msg_lower.startswith(c + " ") for c in continuations) or \
+                      any(word in user_msg_lower for word in ["done", "finished", "completed"])
     
+    # Negative Feedback Detection (No improvement after exercise)
+    negative_feedback = ["no change", "no changes", "still stressed", "not working", "didn't help", "no better", "still feel", "no difference"]
+    has_negative_feedback = any(f in user_msg_lower for f in negative_feedback)
+    is_stop = any(word in user_msg_lower for word in ["stop", "cancel", "exit", "quit", "no more", "nevermind", "end this", "don't want to"])
+
     # 1. Basic Intent/Stop/Pivot Detection
     greetings = ["hi", "hello", "hey", "hii", "howdy", "sup", "greetings", "good morning", "good evening", "good afternoon"]
     
@@ -260,16 +265,6 @@ def handle_flow_logic(user_message: str, session_state: dict, intent_data: dict 
             valid_range = "A to D" if active_assessment == "onboarding" else "0 to 3"
             return f"Please provide an answer from {valid_range} so I can calculate your result accurately.", session_state, True
 
-    # 4. Continuation Check
-    continuations = [
-        "ok", "okay", "yes", "yeah", "sure", "done", "next", "continue", "go on", 
-        "yes please", "we can try", "i would like that", "let's do it", "let's try", 
-        "yep", "yup", "give", "i did it", "did it", "done it", "i do it", "completed", "ready",
-        "anything", "whatever", "help me", "calm down", "want to calm down", "i want to calm down",
-        "go ahead", "let's start", "start", "do it"
-    ]
-    is_continuation = user_msg_lower in continuations or any(c in user_msg_lower for c in ["done", "finished", "completed"])
-
     # 4. Media Session Follow-up
     if user_msg_lower == "media_finished":
         session_state["media_session_active"] = False
@@ -302,6 +297,37 @@ def handle_flow_logic(user_message: str, session_state: dict, intent_data: dict 
         if is_interactive and is_simple_confirmation and not just_activated:
             # Re-send the current step instructions instead of advancing
             return get_next_flow_step(active_flow, current_step - 1 if current_step > 0 else 0), session_state, True
+
+        # Special Case: User reports no improvement during or after a flow
+        if has_negative_feedback:
+            # Find a DIFFERENT exercise to suggest
+            available_exercises = ["grounding", "tension_release", "body_scan", "478_breathing", "box_breathing"]
+            next_flow = "grounding" # Default fallback
+            
+            last_ex = session_state.get("last_exercise") or active_flow
+            for ex in available_exercises:
+                if ex != last_ex and ex not in session_state.get("refused_exercises", []):
+                    next_flow = ex
+                    break
+            
+            session_state["active_flow"] = None
+            session_state["pending_flow"] = next_flow
+            session_state["awaiting_confirmation"] = True
+            session_state["current_step"] = 0
+            
+            flow_labels = {
+                "grounding": "grounding exercise (5-4-3-2-1)",
+                "tension_release": "muscle tension release",
+                "body_scan": "gentle body scan",
+                "478_breathing": "4-7-8 breathing technique",
+                "box_breathing": "box breathing reset"
+            }
+            label = flow_labels.get(next_flow, "calming technique")
+            
+            return (
+                "Thank you for being honest with me. It's completely okay that the last exercise didn't quite hit the mark—everyone's mind responds differently.\n\n"
+                f"Let's try a different approach. How about we try a {label} together? It might help shift things in a way the breathing didn't. Ready to try?"
+            ), session_state, True
 
         if not is_continuation and not is_interactive:
             # User is likely trying to pivot or chat
