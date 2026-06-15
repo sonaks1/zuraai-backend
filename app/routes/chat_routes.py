@@ -28,6 +28,7 @@ from app.services.mood_service import (
     track_mood,
     get_mood_insights,
     get_wellness_summary,
+    get_exercise_effectiveness,
     track_triggers,
     update_user_name
 )
