@@ -284,7 +284,11 @@
     </div>
 
     <script>
-        const API_BASE = "https://zuraai-backend-production.up.railway.app";
+        // Use local backend by default for testing, fallback to production
+        const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
+            ? "http://localhost:8000" 
+            : "https://zuraai-backend-production.up.railway.app";
+            
         const chatWindow = document.getElementById('chat-window');
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
@@ -293,6 +297,14 @@
         const typingIndicator = document.getElementById('typing-indicator');
 
         let token = localStorage.getItem("token");
+        
+        // --- Visitor ID Logic ---
+        let visitor_id = localStorage.getItem("visitor_id");
+        if (!visitor_id) {
+            visitor_id = crypto.randomUUID();
+            localStorage.setItem("visitor_id", visitor_id);
+        }
+
         let recognition;
         let isRecording = false;
         let voiceEnabled = false;
@@ -371,36 +383,10 @@
 
         voiceBtn.addEventListener('click', toggleVoice);
 
-        // Silent Auth Setup (Simulating App Login)
+        // Simulated Login (Optional - can be bypassed by guest mode)
         async function ensureAuth() {
             if (token) return true;
-            
-            try {
-                const phone = "0000000000"; // Simulated from app
-                const name = "App User";
-                
-                await fetch(`${API_BASE}/auth/request-otp`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, name })
-                });
-
-                const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, otp: "123456" })
-                });
-                
-                const data = await res.json();
-                if (data.access_token) {
-                    token = data.access_token;
-                    localStorage.setItem('token', token);
-                    return true;
-                }
-            } catch (e) {
-                console.error("Auth failed", e);
-            }
-            return false;
+            return false; // Bypassing for guest mode test
         }
 
         async function sendMessage() {
@@ -415,26 +401,27 @@
             typingIndicator.style.display = 'block';
             chatWindow.scrollTop = chatWindow.scrollHeight;
 
-            // Ensure we have a token
-            const authenticated = await ensureAuth();
-            if (!authenticated) {
-                appendMessage('ai', "I'm having trouble connecting. Is the backend running?");
-                typingIndicator.style.display = 'none';
-                return;
-            }
-
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
                 const response = await fetch(`${API_BASE}/chat/`, {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
+                    headers: headers,
                     body: JSON.stringify({ 
                         message: message,
+                        visitor_id: visitor_id,
                         voice_enabled: voiceEnabled
                     })
                 });
+
+                if (response.status === 401) {
+                    typingIndicator.style.display = 'none';
+                    appendMessage('ai', "Authentication error. Please refresh or try again.");
+                    return;
+                }
 
                 const data = await response.json();
                 typingIndicator.style.display = 'none';
@@ -453,6 +440,7 @@
             } catch (e) {
                 typingIndicator.style.display = 'none';
                 appendMessage('ai', "I'm offline for a moment. Please check your connection!");
+                console.error("Chat error:", e);
             }
         }
 

@@ -6,13 +6,10 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-
-    name = Column(String)
-
-    phone = Column(String, unique=True, index=True)
-
+    name = Column(String, nullable=True)
+    visitor_id = Column(String, unique=True, index=True, nullable=True)
+    phone = Column(String, unique=True, index=True, nullable=True)
     email = Column(String, unique=True, nullable=True)
-
     password = Column(String, nullable=True)
     onboarding_completed = Column(Boolean, default=False)
     

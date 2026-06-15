@@ -4,8 +4,12 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 
 from app.utils.get_current_user import (
-    get_current_user
+    get_current_user,
+    security,
+    ALGORITHM,
+    JWT_SECRET
 )
+from jose import jwt
 
 from app.services.therapy_service import (
     get_therapeutic_recommendation
@@ -108,9 +112,34 @@ async def chat(
     data: ChatSchema,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    token = Depends(security)
 ):
     t_start = time.time()
+    
+    # --- User Resolution (Token or Visitor ID) ---
+    current_user = None
+    if token and token.credentials:
+        try:
+            payload = jwt.decode(token.credentials, JWT_SECRET, algorithms=[ALGORITHM])
+            user_id = payload.get("user_id")
+            if user_id:
+                current_user = db.query(User).filter(User.id == user_id).first()
+        except Exception:
+            pass # Fallback to visitor_id
+
+    if not current_user and data.visitor_id:
+        current_user = db.query(User).filter(User.visitor_id == data.visitor_id).first()
+        if not current_user:
+            # Create new guest user
+            current_user = User(visitor_id=data.visitor_id)
+            db.add(current_user)
+            db.commit()
+            db.refresh(current_user)
+
+    if not current_user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="User identification required (Token or Visitor ID)")
+
     # --- Ensure current_user is persistent ---
     current_user = db.merge(current_user, load=False)
     session_state = get_session_state(current_user.id)

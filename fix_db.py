@@ -18,6 +18,7 @@ def fix_database():
     with engine.connect() as conn:
         try:
             # Fix users table
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS visitor_id VARCHAR;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR DEFAULT 'English';"))
@@ -26,6 +27,7 @@ def fix_database():
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS tier VARCHAR;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_layer VARCHAR;"))
             
+            conn.execute(text("ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;"))
             conn.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL;"))
             conn.execute(text("ALTER TABLE users ALTER COLUMN password DROP NOT NULL;"))
             print("- Verified 'users' table columns")

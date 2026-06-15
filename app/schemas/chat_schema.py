@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 
 class ChatSchema(BaseModel):
     message: str
+    visitor_id: Optional[str] = None
     voice_enabled: Optional[bool] = False
 
 class ChatActionSchema(BaseModel):
