@@ -15,7 +15,7 @@ def personality_mode(emotion: str):
     }
     return mapping.get(emotion.lower(), "balanced")
 
-def get_personalized_prompt_extension(user_name: str = None, insights: dict = None, wellness_count: int = 0, user_profile: dict = None):
+def get_personalized_prompt_extension(user_name: str = None, insights: dict = None, wellness_count: int = 0, user_profile: dict = None, exercise_effectiveness: dict = None):
     """Generates a small prompt snippet for personalization based on long-term memory and structured profile"""
     context = ""
     
@@ -58,6 +58,14 @@ def get_personalized_prompt_extension(user_name: str = None, insights: dict = No
         if past_moods:
             context += f"HISTORICAL CONTEXT: The user has previously expressed feeling {', '.join(past_moods[:3])}. IMPORTANT: This is for background only. Do NOT assume they feel this way right now unless they say so in their current message.\n"
             
+    if exercise_effectiveness:
+        helpful = exercise_effectiveness.get("helpful", [])
+        unhelpful = exercise_effectiveness.get("unhelpful", [])
+        if helpful:
+            context += f"EFFECTIVE EXERCISES: {', '.join(helpful)}. (These worked well last time. Prioritize these if they are stressed).\n"
+        if unhelpful:
+            context += f"INEFFECTIVE EXERCISES: {', '.join(unhelpful)}. (Avoid suggesting these unless necessary, as they didn't help before).\n"
+
     if wellness_count > 0:
         context += f"WELLNESS PROGRESS: They've completed {wellness_count} wellness exercises this week.\n"
         

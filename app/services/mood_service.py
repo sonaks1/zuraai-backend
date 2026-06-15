@@ -127,6 +127,29 @@ def get_wellness_summary(db: Session, user_id: int):
     ).count()
     return count
 
+def get_exercise_effectiveness(db: Session, user_id: int):
+    """Retrieves which exercises were helpful vs unhelpful based on feedback"""
+    records = db.query(WellnessProgress).filter(
+        WellnessProgress.user_id == user_id
+    ).order_by(WellnessProgress.completed_at.desc()).limit(10).all()
+    
+    helpful = []
+    unhelpful = []
+    
+    for r in records:
+        if not r.feedback: continue
+        fb = r.feedback.lower()
+        # Simple keyword matching for effectiveness
+        is_helpful = any(word in fb for word in ["better", "helped", "changed", "good", "calm", "lighter", "relief"])
+        is_unhelpful = any(word in fb for word in ["no change", "not work", "same", "worse", "didn't help"])
+        
+        if is_helpful:
+            helpful.append(r.exercise_id)
+        elif is_unhelpful:
+            unhelpful.append(r.exercise_id)
+            
+    return {"helpful": list(set(helpful)), "unhelpful": list(set(unhelpful))}
+
 def get_recent_emotions(db: Session, user_id: int, limit: int = 5):
     """Retrieves recent emotions for personalization"""
     entries = db.query(MoodHistory).filter(

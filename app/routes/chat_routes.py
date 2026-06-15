@@ -192,6 +192,7 @@ async def chat(
     history = get_chat_history(db, current_user.id, limit=3)
     insights = get_mood_insights(db, current_user.id)
     wellness_count = get_wellness_summary(db, current_user.id)
+    exercise_eff = get_exercise_effectiveness(db, current_user.id)
     
     retrieved_memories = memory_results.get("documents", [[]])[0] if memory_results else []
     print(f"DEBUG: Context took {time.time() - t_context:.4f}s")
@@ -201,7 +202,8 @@ async def chat(
     user_name_val = current_user.name or session_state.get("user_name")
     personalized_context = get_personalized_prompt_extension(
         user_name=user_name_val, insights=insights, wellness_count=wellness_count,
-        user_profile={"tier": current_user.tier, "onboarding_layer": current_user.onboarding_layer, "support_preference": current_user.support_preference}
+        user_profile={"tier": current_user.tier, "onboarding_layer": current_user.onboarding_layer, "support_preference": current_user.support_preference},
+        exercise_effectiveness=exercise_eff
     )
 
     unified_output = await generate_unified_zura_response(
@@ -240,6 +242,15 @@ async def chat(
         current_user.name = analysis.get("name")
         update_user_name(db, current_user.id, analysis.get("name"))
     track_mood(db, current_user.id, current_emotion, severity, context=user_message)
+
+    # Track Exercise Feedback if provided
+    feedback = analysis.get("exercise_feedback")
+    last_ex = session_state.get("last_exercise")
+    if feedback and feedback != "none" and last_ex:
+        from app.services.mood_service import track_wellness_progress
+        track_wellness_progress(db, current_user.id, last_ex, last_ex.replace("_", " ").capitalize(), feedback=user_message)
+        # Clear last_exercise after feedback is recorded to prevent double-tracking
+        session_state["last_exercise"] = None
 
     # 4. Flow Interception
     t_flow = time.time()
