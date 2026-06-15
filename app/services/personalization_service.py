@@ -56,9 +56,9 @@ def get_personalized_prompt_extension(user_name: str = None, insights: dict = No
             context += f"RECURRING STRESSORS: {', '.join(triggers)}. If they mention these, show you remember they've come up before.\n"
             
         if past_moods:
-            context += f"RECENT EMOTIONAL TREND: {', '.join(past_moods[:3])}.\n"
+            context += f"HISTORICAL CONTEXT: The user has previously expressed feeling {', '.join(past_moods[:3])}. IMPORTANT: This is for background only. Do NOT assume they feel this way right now unless they say so in their current message.\n"
             
     if wellness_count > 0:
-        context += f"WELLNESS PROGRESS: They've completed {wellness_count} wellness exercises this week. Celebrate this small victory if appropriate!\n"
+        context += f"WELLNESS PROGRESS: They've completed {wellness_count} wellness exercises this week.\n"
         
     return context
