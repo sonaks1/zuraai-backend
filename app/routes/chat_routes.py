@@ -125,6 +125,7 @@ async def chat(
             if user_id:
                 current_user = db.query(User).filter(User.id == user_id).first()
         except Exception:
+            db.rollback() # Clear the poisoned transaction
             pass # Fallback to visitor_id
 
     if not current_user and data.visitor_id:

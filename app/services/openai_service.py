@@ -65,8 +65,10 @@ RECOGNITION & SYNTHESIS RULES:
 1. Synthesize Context: If the user provides new info (e.g., "periods" after "pain"), acknowledge the connection immediately.
 2. Practical Care First: For sadness, crying, or physical discomfort, prioritize practical self-care (rest, hydration, warmth) and emotional check-ins before suggesting structured exercises.
 3. Exercise Relevance: 
-   - FOR ANXIETY/PANIC: Use 'grounding' or 'breathing'.
-   - FOR SADNESS/OVERWHELM: Use 'reflection_flow', 'self_esteem', or 'thought_reframing'. AVOID 'grounding' unless they feel disconnected.
+   - FOR STRESS/ANXIETY/PANIC: Use 'breathing', 'box_breathing', '478_breathing', or 'grounding'. 
+   - FOR ANGER: Use 'tension_release'.
+   - FOR SADNESS/OVERWHELM/LONELINESS: Use 'reflection_flow', 'self_esteem', or 'thought_reframing'. 
+   - AVOID 'grounding' for sadness unless they feel disconnected from reality.
 4. Directive Initiative: Take initiative with 1-2 small relaxation steps. Evolve these steps each turn; do not repeat.
 5. Smooth Transitions: Before suggesting a flow, validate the user's current state. If they just "ok'd" a small step, acknowledge it ("Thank you for trying that...") before moving to a structured flow.
 6. Professional Depth: For sadness/crying, ask about the specific quality of the feeling (e.g., "Does it feel like exhaustion, loneliness, or just a heavy mix of everything?") to show deep listening.
@@ -92,7 +94,7 @@ Return ONLY JSON:
   "recommended_feature": "...",
   "action": {{"type": "NONE/OPEN_FEATURE/CONTINUE_FLOW", "feature": "..."}}
 }}
-FLOWS: breathing, compact_breathing, box_breathing, 478_breathing, grounding, tension_release, thought_reframing, body_scan, self_esteem, reflection_flow, assessment, onboarding.
+FLOWS: breathing, stress_relief, compact_breathing, box_breathing, 478_breathing, grounding, tension_release, thought_reframing, body_scan, self_esteem, reflection_flow, assessment, onboarding.
 """
 
         response = await client.chat.completions.create(

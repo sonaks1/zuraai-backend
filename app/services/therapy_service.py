@@ -3,6 +3,7 @@ import random
 # Therapeutic Activity Engine - Standardized for ZuraAI
 ACTIVITIES = {
     "stress": [
+        {"id": "stress_relief", "label": "Stress Relief", "type": "FLOW", "description": "A quick way to calm your mind."},
         {"id": "breathing", "label": "Breathing Exercise", "type": "FLOW", "description": "A mindful minute to find your center."},
         {"id": "box_breathing", "label": "Box Breathing", "type": "FLOW", "description": "reset your nervous system with a square breath."},
         {"id": "grounding", "label": "Grounding Activity", "type": "FLOW", "description": "Reconnect with the present moment."},
@@ -64,6 +65,11 @@ WELLNESS_FLOWS = {
         "Take your time. I'll stay right here with you.",
         "Great job taking that moment for yourself. How are you feeling now compared to before we started?"
     ],
+    "stress_relief": [
+        "I'm here with you. Let's try a quick stress-relief exercise together. Take a slow breath in through your nose for 4 seconds, hold for 2 seconds, and then breathe out gently for 6 seconds.",
+        "Repeat this three times at your own pace, and let me know when you're done.",
+        "Great job taking that moment for yourself. How are you feeling now compared to before we started?"
+    ],
     "compact_breathing": [
         "Let’s slow things down together. Take a deep breath in, hold it softly for a second, and slowly breathe out. Repeat this gently 3 times at your own pace.",
         "Take your time. I’ll stay right here while you try it.",
@@ -99,7 +105,7 @@ WELLNESS_FLOWS = {
         "Take a moment to sit with this feeling. How are you feeling now compared to before we started?"
     ],
     "tension_release": [
-        "I hear you, Sona. Anger can be heavy to carry around, especially when it builds up inside. Let's help your body release some of that tension. Gently shrug your shoulders up toward your ears, hold for 3 seconds, and then let them drop completely. Repeat this three times at your own pace.",
+        "I hear you. Sometimes our bodies hold onto physical tension when we're feeling a lot. Let's help your body release some of that. Gently shrug your shoulders up toward your ears, hold for 3 seconds, and then let them drop completely. Repeat this three times at your own pace.",
         "Now, let's try one more: squeeze your fists as tight as you can for 3 seconds, then let them go completely and notice the relaxation spreading through your hands.",
         "Take a slow, deep breath. How are you feeling now compared to before we started?"
     ],
