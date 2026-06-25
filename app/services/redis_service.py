@@ -1,27 +1,34 @@
+import os
 import redis
-import json
 
 class SimpleCache:
     """In-memory fallback if Redis is unavailable"""
     def __init__(self):
         self.data = {}
+
     def set(self, key, value, ex=None):
         self.data[key] = value
+
     def get(self, key):
         return self.data.get(key)
+
     def delete(self, key):
         if key in self.data:
             del self.data[key]
 
 try:
-    redis_client = redis.Redis(
-        host="localhost",
-        port=6379,
+    REDIS_URL = os.getenv("REDIS_URL")
+
+    redis_client = redis.from_url(
+        REDIS_URL,
         decode_responses=True,
-        socket_connect_timeout=1
+        socket_connect_timeout=5
     )
+
     redis_client.ping()
-    print("DEBUG: Using Redis for session state.")
-except Exception:
+    print("✅ Redis connected successfully")
+
+except Exception as e:
+    print(f"❌ Redis connection failed: {e}")
     print("DEBUG: Redis unavailable. Using in-memory fallback for session state.")
     redis_client = SimpleCache()
